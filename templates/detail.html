@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pitch Change - Detail</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
+    header { padding: 16px 24px; background: #111827; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; }
+    h1 { font-size: 18px; margin: 0; }
+    main { padding: 24px; max-width: 900px; margin: 0 auto; }
+    .row { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: start; }
+    .thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; border: 1px solid #1f2937; background: #0b1220; }
+    .meta { font-size: 14px; color: #cbd5e1; margin-top: 8px; }
+    .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
+    select, button { padding: 10px 14px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: #e5e7eb; }
+    button:hover { background: #374151; cursor: pointer; }
+    audio { width: 100%; margin-top: 12px; }
+    .loading { display: none; color: #93c5fd; }
+    a { color: #93c5fd; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><a href="/">⟵ Back</a> Pitch Change - Detail</h1>
+    <div id="status" class="loading">Working…</div>
+  </header>
+  <main>
+    <div class="row">
+      <div>
+        <img id="thumb" class="thumb" src="" alt="thumbnail" />
+        <div class="meta" id="fileMeta">&nbsp;</div>
+      </div>
+      <div>
+        <div class="controls">
+          <label for="pitchSel">Pitch (semitones):</label>
+          <select id="pitchSel"></select>
+          <button id="playBtn">Play</button>
+          <button id="storeBtn">Store as video</button>
+        </div>
+        <audio id="player" controls preload="none"></audio>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const fileId = window.location.pathname.split('/').pop();
+    const el = (s) => document.querySelector(s);
+    const statusEl = el('#status');
+    const player = el('#player');
+
+    function setLoading(v) { statusEl.style.display = v ? 'block' : 'none'; }
+
+    async function api(method, url, body) {
+      const init = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) init.body = JSON.stringify(body);
+      const res = await fetch(url, init);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function populatePitchOptions() {
+      const sel = el('#pitchSel');
+      sel.innerHTML = '';
+      for (let i = -8; i <= 8; i++) {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = (i > 0 ? `+${i}` : String(i));
+        if (i === 0) opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+
+    async function ensureAudioExtracted() {
+      setLoading(true);
+      try {
+        const res = await api('POST', '/api/extract-audio', { id: fileId });
+        // Preload base audio URL for seek bar compatibility
+        player.src = res.audio_url;
+        player.load();
+        el('#fileMeta').textContent = `${res.filename} • ${res.duration}`;
+      } finally { setLoading(false); }
+    }
+
+    async function playWithPitch() {
+      const n = parseInt(el('#pitchSel').value, 10) || 0;
+      // Always fetch corresponding audio URL; append cache buster
+      setLoading(true);
+      try {
+        let url;
+        if (n === 0) {
+          url = `/audio?id=${encodeURIComponent(fileId)}&pitch=0`;
+        } else {
+          const res = await api('POST', '/api/pitch', { id: fileId, semitones: n });
+          url = res.audio_url;
+        }
+        const cacheBuster = `&_=${Date.now()}`;
+        player.pause();
+        player.src = `${url}${url.includes('?') ? '&' : '?'}_=${Date.now()}`;
+        player.load();
+        await player.play();
+      } finally { setLoading(false); }
+    }
+
+    async function storeAsVideo() {
+      const n = parseInt(el('#pitchSel').value, 10) || 0;
+      setLoading(true);
+      try {
+        const res = await api('POST', '/api/store-video', { id: fileId, semitones: n });
+        alert(`Saved: ${res.output_path}`);
+      } finally { setLoading(false); }
+    }
+
+    (async () => {
+      setLoading(true);
+      try {
+        populatePitchOptions();
+        const info = await api('GET', `/api/video-info/${fileId}`);
+        el('#thumb').src = info.thumbnail;
+        el('#fileMeta').textContent = `${info.filename}`;
+        await ensureAudioExtracted();
+      } finally { setLoading(false); }
+    })();
+
+    el('#playBtn').onclick = playWithPitch;
+    el('#storeBtn').onclick = storeAsVideo;
+  </script>
+</body>
+</html>
+
+

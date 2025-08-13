@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pitch Change - Browser</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background: #0f172a; color: #e2e8f0; }
+    header { padding: 16px 24px; background: #111827; border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between; }
+    h1 { font-size: 18px; margin: 0; }
+    main { padding: 24px; }
+    .paths { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    input[type="text"] { padding: 10px 12px; border-radius: 8px; border: 1px solid #374151; background: #0b1220; color: #e5e7eb; min-width: 360px; }
+    button { padding: 10px 14px; border-radius: 8px; border: 1px solid #374151; background: #1f2937; color: #e5e7eb; cursor: pointer; }
+    button:hover { background: #374151; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; background: #111827; border: 1px solid #374151; padding: 6px 10px; border-radius: 999px; }
+    .pill button { padding: 4px 8px; }
+    .pill-wrap { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: #0b1220; border: 1px solid #1f2937; border-radius: 12px; overflow: hidden; cursor: pointer; }
+    .thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
+    .card .meta { padding: 10px 12px; font-size: 14px; color: #cbd5e1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .toolbar { display: flex; align-items: center; gap: 12px; margin: 12px 0 20px; }
+    .loading { display: none; color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pitch Change - MP4 Browser</h1>
+    <div id="status" class="loading">Working…</div>
+  </header>
+  <main>
+    <section>
+      <div class="paths">
+        <input id="pathInput" type="text" placeholder="Enter search path (e.g., /Users/you/Videos)" />
+        <button id="addPathBtn">Add Path</button>
+        <button id="refreshBtn">Refresh</button>
+      </div>
+      <div id="pathsList" class="pill-wrap"></div>
+    </section>
+
+    <section class="toolbar">
+      <div>Showing videos from all paths</div>
+    </section>
+
+    <section>
+      <div id="grid" class="grid"></div>
+    </section>
+  </main>
+
+  <script>
+    const el = (sel) => document.querySelector(sel);
+    const statusEl = el('#status');
+
+    async function api(method, url, body) {
+      const init = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) init.body = JSON.stringify(body);
+      const res = await fetch(url, init);
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function setLoading(v) {
+      statusEl.style.display = v ? 'block' : 'none';
+    }
+
+    async function loadPaths() {
+      const data = await api('GET', '/api/paths');
+      const wrap = el('#pathsList');
+      wrap.innerHTML = '';
+      for (const p of data.paths) {
+        const pill = document.createElement('div');
+        pill.className = 'pill';
+        pill.innerHTML = `<span>${p}</span>`;
+        const btn = document.createElement('button');
+        btn.textContent = 'Remove';
+        btn.onclick = async () => {
+          setLoading(true);
+          try { await api('DELETE', '/api/paths', { path: p }); await refresh(); } finally { setLoading(false); }
+        };
+        pill.appendChild(btn);
+        wrap.appendChild(pill);
+      }
+    }
+
+    async function loadVideos() {
+      const data = await api('GET', '/api/videos');
+      const grid = el('#grid');
+      grid.innerHTML = '';
+      for (const v of data.videos) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.onclick = () => { window.location.href = `/detail/${v.id}`; };
+        card.innerHTML = `
+          <img class="thumb" src="${v.thumbnail}" alt="thumbnail" />
+          <div class="meta" title="${v.filename}">${v.filename}</div>
+        `;
+        grid.appendChild(card);
+      }
+    }
+
+    async function refresh() {
+      await loadPaths();
+      await loadVideos();
+    }
+
+    el('#addPathBtn').onclick = async () => {
+      const path = el('#pathInput').value.trim();
+      if (!path) return;
+      setLoading(true);
+      try {
+        await api('POST', '/api/paths', { path });
+        el('#pathInput').value = '';
+        await refresh();
+      } finally { setLoading(false); }
+    };
+
+    el('#refreshBtn').onclick = async () => {
+      setLoading(true);
+      try { await refresh(); } finally { setLoading(false); }
+    };
+
+    // initial load
+    (async () => { setLoading(true); try { await refresh(); } finally { setLoading(false); } })();
+  </script>
+</body>
+</html>
+
+
